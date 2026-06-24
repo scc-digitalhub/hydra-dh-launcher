@@ -55,7 +55,7 @@ docstring-code-line-length = 120
 convention = "numpy"
 
 [tool.bumpver]
-current_version = "0.16.0b0"
+current_version = "0.16.0"
 version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 commit_message  = "Bump version {old_version} -> {new_version}"
 commit          = false

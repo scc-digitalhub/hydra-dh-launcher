@@ -1,43 +1,66 @@
 [build-system]
-requires = ["setuptools", "wheel", "read-version"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
+[project]
+name = "hydra-dh-launcher"
+version = "0.16.0"
+description = "Hydra Launcher for DHCore"
+readme = "README.md"
+authors = [
+    { name = "Fondazione Bruno Kessler", email = "digitalhub@fbk.eu" },
+    { name = "Raman Kazhamiakin", email = "raman@fbk.eu" }
+]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+keywords = ["data", "dataops", "kubernetes"]
+requires-python = ">=3.10, <3.15"
+dependencies = [
+"digitalhub[full]",
+"digitalhub-runtime-python",
+"hydra-core",
+"omegaconf",
+"pip",
+"tomli; python_version < '3.11'",
+"pyyaml",
+]
 
-[tool.towncrier]
-    package = "hydra_plugins.hydra_dh_launcher"
-    filename = "NEWS.md"
-    directory = "news/"
-    title_format = "{version} ({project_date})"
-    template = "../../news/_template.rst"
-    issue_format = "[#{issue}](https://github.com/facebookresearch/hydra/issues/{issue})"
-    start_string = "<!-- TOWNCRIER -->\n"
+[project.optional-dependencies]
+dev = [
+    "digitalhub[dev]>=0.15.1, <0.16"
+]
 
-  [[tool.towncrier.type]]
-  directory = "feature"
-  name = "Features"
-  showcontent = true
+[project.urls]
+Homepage = "https://github.com/scc-digitalhub/hydra-dh-launcher"
 
-  [[tool.towncrier.type]]
-  directory = "api_change"
-  name = "API Change (Renames, deprecations and removals)"
-  showcontent = true
+[tool.ruff]
+line-length = 120
 
-  [[tool.towncrier.type]]
-  directory = "bugfix"
-  name = "Bug Fixes"
-  showcontent = true
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+docstring-code-line-length = 120
 
-  [[tool.towncrier.type]]
-  directory = "config"
-  name = "Configuration structure changes"
-  showcontent = true
+[tool.ruff.lint.extend-per-file-ignores]
+"__init__.py" = ["F401"]
 
-  [[tool.towncrier.type]]
-  directory = "docs"
-  name = "Improved Documentation"
-  showcontent = true
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
 
-  [[tool.towncrier.type]]
-  directory = "maintenance"
-  name = "Maintenance Changes"
-  showcontent = true
+[tool.bumpver]
+current_version = "0.16.0b0"
+version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
+commit_message  = "Bump version {old_version} -> {new_version}"
+commit          = false
+tag             = false
+push            = false
+
+[tool.bumpver.file_patterns]
+"pyproject.toml" = ['current_version = "{version}"', 'version = "{version}"']

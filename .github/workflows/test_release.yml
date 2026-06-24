@@ -1,0 +1,85 @@
+name: Test release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-type:
+        description: "Release type"
+        required: true
+        default: "tag-num"
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+          - upgrade-beta
+          - new-beta-major
+          - new-beta-minor
+          - new-beta-patch
+          - final
+      skip-pypi:
+        description: "If true, skip publishing to PyPI"
+        default: false
+        type: boolean
+
+jobs:
+  bumpver-pyproject:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.current-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bumpver
+        run: python -m pip install bumpver
+
+      # Evaluate input and bumpver accordingly
+      - name: Execute script bumpver
+        run: ./.github/scripts/bump.sh ${{ inputs.release-type }}
+
+      # Store current version for later use
+      - name: Current version
+        id: current-version
+        run: |
+          ver=$(bumpver show -n --environ | grep CUR | awk '{gsub(/CURRENT_VERSION=/, ""); print}')
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+
+  tag-and-release:
+    name: Tag and release on Github
+    needs: [bumpver-pyproject]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cliff
+        run: python -m pip install git-cliff
+
+      - name: Generate a changelog
+        env:
+          VERSION: ${{ needs.bumpver-pyproject.outputs.version }}
+          BETA: ${{ inputs.release-type == 'upgrade-beta' || startsWith(inputs.release-type, 'new-beta')}}
+        run: ./.github/scripts/changelog.sh ${{ env.VERSION }} ${{ env.BETA }}
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.bumpver-pyproject.outputs.version }}
+          BETA: ${{ inputs.release-type == 'upgrade-beta' || startsWith(inputs.release-type, 'new-beta')}}
+        with:
+          name: ${{ env.VERSION }}
+          tag_name: ${{ env.VERSION }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: ${{ env.BETA }}

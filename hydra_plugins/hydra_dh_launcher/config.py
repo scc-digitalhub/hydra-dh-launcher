@@ -1,4 +1,7 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# SPDX-FileCopyrightText: © 2026 DSLab - Fondazione Bruno Kessler
+# Copyright (C) Facebook, Inc. and its affiliates. All Rights Reserved
+#
+# SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass, field
 from typing import Optional
 

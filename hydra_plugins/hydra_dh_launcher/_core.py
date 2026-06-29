@@ -17,12 +17,11 @@ from hydra.core.utils import (
     run_job,
     setup_globals,
 )
-from hydra.types import HydraContext, TaskFunction
+from hydra.types import HydraContext
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 from .dh_launcher import DHLauncher
 
-import os
 import digitalhub as dh
 from digitalhub_runtime_python.entities.function.hydra.entity import FunctionHydra
 
@@ -138,6 +137,8 @@ def launch(
     function_name, version = _get_function_signature(function)
     try:
         func = dh.get_function(function_name, project=project_name, entity_id=version)
+        # enforce task 
+        func._get_or_create_task("subtask")
     except Exception as e:
         raise ValueError(f"Function {function} does not exist in project {project_name}.")
     

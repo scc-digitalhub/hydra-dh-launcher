@@ -50,6 +50,8 @@ def execute_job(
     HydraConfig.instance().set_config(sweep_config)
 
     def task_function(cfg: DictConfig) -> Any:
+        sweep_config = HydraConfig.instance().cfg
+        job_dir = (Path(sweep_config.hydra.runtime.output_dir) / Path(sweep_config.hydra.output_subdir)).absolute()
         run = func.run(action="subtask", 
             wait=True, 
             log_info=False,
@@ -58,7 +60,12 @@ def execute_job(
             envs=func_config.get("envs", None),
             secrets=func_config.get("secrets", None),
             profile=func_config.get("profile", None),
-            parameters={"cfg_passthrough": OmegaConf.to_container(cfg)},
+            parameters={
+                "cfg_passthrough": OmegaConf.to_container(cfg),
+                "job_id": sweep_config.hydra.job.id,
+                "job_num": sweep_config.hydra.job.num,
+                "job_dir": job_dir,
+                },
             job_ref=func_config.get("job_ref", None),
             local_execution=func_config.get("local_execution", False),
         )

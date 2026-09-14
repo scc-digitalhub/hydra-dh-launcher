@@ -17,11 +17,12 @@ from hydra.core.utils import (
     run_job,
     setup_globals,
 )
-from hydra.types import HydraContext
+from hydra.types import HydraContext, TaskFunction
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 from .dh_launcher import DHLauncher
 
+import os
 import digitalhub as dh
 from digitalhub_runtime_python.entities.function.hydra.entity import FunctionHydra
 
@@ -44,14 +45,21 @@ def execute_job(
     sweep_config = hydra_context.config_loader.load_sweep_config(
         config, list(overrides)
     )
+
+    job_id = f"{sweep_config.hydra.job.name}_{idx}"
+    job_num = idx
+
     with open_dict(sweep_config):
-        sweep_config.hydra.job.id = f"{sweep_config.hydra.job.name}_{idx}"
-        sweep_config.hydra.job.num = idx
-    HydraConfig.instance().set_config(sweep_config)
+        sweep_config.hydra.job.id = job_id
+        sweep_config.hydra.job.num = job_num
+
+    output_dir = str(OmegaConf.select(sweep_config, "hydra.sweep.dir"))
+    subdir = str(OmegaConf.select(sweep_config, "hydra.sweep.subdir"))
+    output_subdir = str(OmegaConf.select(sweep_config, "hydra.output_subdir"))
+    output_dir = os.path.join(output_dir, subdir, output_subdir)
+    job_dir = os.path.abspath(output_dir)
 
     def task_function(cfg: DictConfig) -> Any:
-        sweep_config = HydraConfig.instance().cfg
-        job_dir = (Path(sweep_config.hydra.runtime.output_dir) / Path(sweep_config.hydra.output_subdir)).absolute()
         run = func.run(action="subtask", 
             wait=True, 
             log_info=False,
@@ -62,8 +70,8 @@ def execute_job(
             profile=func_config.get("profile", None),
             parameters={
                 "cfg_passthrough": OmegaConf.to_container(cfg),
-                "job_id": sweep_config.hydra.job.id,
-                "job_num": sweep_config.hydra.job.num,
+                "job_id": job_id,
+                "job_num": job_num,
                 "job_dir": job_dir,
                 },
             job_ref=func_config.get("job_ref", None),

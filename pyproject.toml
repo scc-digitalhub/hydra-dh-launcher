@@ -24,7 +24,6 @@ keywords = ["data", "dataops", "kubernetes"]
 requires-python = ">=3.10, <3.15"
 dependencies = [
 "digitalhub[full]",
-"digitalhub-runtime-python",
 "hydra-core",
 "omegaconf",
 "pip",
@@ -34,7 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "digitalhub[dev]>=0.15.1, <0.16"
+    "digitalhub[dev]>=0.16.0b0, <0.17"
 ]
 
 [project.urls]

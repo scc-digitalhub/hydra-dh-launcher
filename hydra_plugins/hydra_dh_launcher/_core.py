@@ -24,7 +24,6 @@ from .dh_launcher import DHLauncher
 
 import os
 import digitalhub as dh
-from digitalhub_runtime_python.entities.function.hydra.entity import FunctionHydra
 
 
 log = logging.getLogger(__name__)
@@ -35,7 +34,7 @@ def execute_job(
     hydra_context: HydraContext,
     config: DictConfig,
     func_config: DictConfig,
-    func: FunctionHydra,
+    func,
     singleton_state: Dict[Any, Any],
 ) -> JobReturn:
     """Calls `run_job` in parallel"""
@@ -148,7 +147,7 @@ def launch(
     if not function:
         raise ValueError("function is not set in the config.")
     
-    func: FunctionHydra = None
+    func = None
     function_name, version = _get_function_signature(function)
     try:
         func = dh.get_function(function_name, project=project_name, entity_id=version)

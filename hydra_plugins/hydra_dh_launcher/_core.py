@@ -5,23 +5,21 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from time import time
 from typing import Any, Dict, List, Sequence
 import re
 
 from hydra.core.singleton import Singleton
 from hydra.core.utils import (
     JobReturn,
+    JobStatus,
     configure_log,
     filter_overrides,
     run_job,
     setup_globals,
 )
-from hydra.types import HydraContext, TaskFunction
-from joblib import (
-    Parallel, 
-    delayed, 
-    wrap_non_picklable_objects
-)
+from hydra.types import HydraContext
+
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 from .dh_launcher import DHLauncher
@@ -63,8 +61,10 @@ def execute_job(
     job_dir = os.path.abspath(output_dir)
 
     def task_function(cfg: DictConfig) -> Any:
+        local_execution = func_config.get("local_execution", False)
+
         run = func.run(action="subtask", 
-            wait=True, 
+            wait=local_execution, 
             log_info=False,
             volumes=func_config.get("volumes", None),
             resources=func_config.get("resources", None),
@@ -78,17 +78,20 @@ def execute_job(
                 "job_dir": job_dir,
                 },
             job_ref=func_config.get("job_ref", None),
-            local_execution=func_config.get("local_execution", False),
+            local_execution=local_execution,
         )
         status = run.refresh().status
         if status.state == "ERROR":
             raise RuntimeError(f"Job failed with error: {status.message or 'Execution error'}")
 
-        values = [v for k, v in status.results.items()]
-        if len(status.results) == 1:
-            return values[0]
-        else:   
-            return values
+        if local_execution:
+            values = [v for k, v in status.results.items()]
+            if len(status.results) == 1:
+                return values[0]
+            else:   
+                return values
+        else:
+            return run.id
 
     ret = run_job(
         hydra_context=hydra_context,
@@ -97,7 +100,6 @@ def execute_job(
         job_dir_key="hydra.sweep.dir",
         job_subdir_key="hydra.sweep.subdir",
     )
-    ret = wrap_non_picklable_objects(ret, keep_wrapper=False)
 
     return ret
 
@@ -116,6 +118,78 @@ def _get_function_signature(function: str) -> tuple[str, str]:
     if match:
         # function is in format <function_name>, use default version
         return function, None
+
+def run_and_monitor_remote_jobs(
+        initial_job_idx: int,
+        job_overrides: Sequence[Sequence[str]],
+        hydra_context: HydraContext,
+        config: DictConfig,
+        func_config: DictConfig,
+        project_name: str,
+        func,
+        singleton_state: Dict[Any, Any],
+) -> Sequence[JobReturn]:
+    """Run and monitor remote jobs.
+
+    This function executes a series of remote jobs based on the provided job overrides and monitors their status until completion.
+    If any job fails, a RuntimeError is raised.
+    The function returns the results of all successfully completed jobs.
+
+    Args:
+        initial_job_idx (int): _description_
+        job_overrides (Sequence[Sequence[str]]): _description_
+        hydra_context (HydraContext): _description_
+        config (DictConfig): _description_
+        func_config (DictConfig): _description_
+        project_name (str): _description_
+        func (_type_): _description_
+        singleton_state (Dict[Any, Any]): _description_
+
+    Raises:
+        RuntimeError: _description_
+
+    Returns:
+        Sequence[JobReturn]: _description_
+    """
+    runs = []
+    for idx, overrides in enumerate(job_overrides):
+        job_return = execute_job(
+            initial_job_idx + idx,
+            overrides,
+            hydra_context,
+            config,
+            func_config,
+            func,
+            singleton_state,
+        )
+        if job_return.status != JobStatus.COMPLETED:
+            raise RuntimeError(f"Job failed with status: {job_return.status}")
+        runs.append(job_return)
+
+    to_complete = len(runs)
+    results = [None] * len(runs)
+    project = dh.get_project(project_name)
+    log.info(f"Monitoring {len(runs)} remote jobs.")
+
+    while to_complete > 0:    
+        for idx, job_return in enumerate(runs):
+            # result has not been retrieved yet
+            if results[idx] is None:
+                run_id = job_return.return_value
+                run = project.get_run(run_id)
+                status = run.refresh().status
+                if status.state == "ERROR":
+                    raise RuntimeError(f"Job failed with error: {status.message or 'Execution error'}")
+                if status.state == "SUCCESS":
+                    values = [v for k, v in status.results.items()]
+                    if len(status.results) == 1:
+                        values = values[0]
+                    job_return.return_value = values
+                    results[idx] = job_return
+                    to_complete -= 1
+        time.sleep(10)
+        log.info(f"{to_complete} jobs remaining.")
+    return results
 
 def launch(
     launcher: DHLauncher,
@@ -141,6 +215,7 @@ def launch(
 
 
     dhlauncher_config = launcher.dh
+    ## check if the function exists in the project
     ## recover function. 
     ## if exists, check the source code signature to make sure it is the same. Otherwise, create new version.
     project_name = dhlauncher_config['project_name']
@@ -175,23 +250,41 @@ def launch(
         log.info("\t#{} : {}".format(idx, " ".join(filter_overrides(overrides))))
 
     singleton_state = Singleton.get_state()
-    singleton_state = wrap_non_picklable_objects(
-            singleton_state, keep_wrapper=False
-    )
 
-    calls = (
-        delayed(execute_job)(
-            initial_job_idx + idx,
-            overrides,
+    runs: List[JobReturn] = [None] * len(job_overrides)  # type: ignore
+
+    local_execution = dhlauncher_config.get("local_execution", False)
+    # Execute jobs locally with thread pool executor and blocking
+    if local_execution:
+        futures_map = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for idx, overrides in enumerate(job_overrides):
+                future = executor.submit(
+                    execute_job,
+                    initial_job_idx + idx,
+                    overrides,
+                    launcher.hydra_context,
+                    launcher.config,
+                    dhlauncher_config,
+                    func,
+                    singleton_state,
+                )
+                futures_map[future] = initial_job_idx + idx
+
+        for future in as_completed(futures_map):
+            idx = futures_map[future] - initial_job_idx
+            runs[idx] = future.result()
+    else:
+        runs = run_and_monitor_remote_jobs(
+            initial_job_idx,
+            job_overrides,
             launcher.hydra_context,
             launcher.config,
             dhlauncher_config,
+            project_name,
             func,
             singleton_state,
         )
-        for idx, overrides in enumerate(job_overrides)
-    )
-    runs = Parallel(n_jobs=max_workers, backend="loky", prefer="processes")(calls)
 
 
     for run in runs:

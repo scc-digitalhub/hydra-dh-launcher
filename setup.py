@@ -32,7 +32,6 @@ setup(
         "omegaconf",
         "digitalhub",
         "digitalhub-runtime-python",
-        "joblib>=1.5.3"
     ],
     include_package_data=True,
 )

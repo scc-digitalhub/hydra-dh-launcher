@@ -180,7 +180,7 @@ def run_and_monitor_remote_jobs(
                 status = run.refresh().status
                 if status.state == "ERROR":
                     raise RuntimeError(f"Job failed with error: {status.message or 'Execution error'}")
-                if status.state == "SUCCESS":
+                if status.state == "COMPLETED":
                     values = [v for k, v in status.results.items()]
                     if len(status.results) == 1:
                         values = values[0]

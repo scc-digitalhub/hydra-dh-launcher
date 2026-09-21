@@ -5,7 +5,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from time import time
+import time
 from typing import Any, Dict, List, Sequence
 import re
 

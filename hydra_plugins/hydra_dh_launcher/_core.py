@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Sequence
 import re
 
-from hydra.core.hydra_config import HydraConfig
 from hydra.core.singleton import Singleton
 from hydra.core.utils import (
     JobReturn,
@@ -18,6 +17,11 @@ from hydra.core.utils import (
     setup_globals,
 )
 from hydra.types import HydraContext, TaskFunction
+from joblib import (
+    Parallel, 
+    delayed, 
+    wrap_non_picklable_objects
+)
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 from .dh_launcher import DHLauncher
@@ -93,6 +97,7 @@ def execute_job(
         job_dir_key="hydra.sweep.dir",
         job_subdir_key="hydra.sweep.subdir",
     )
+    ret = wrap_non_picklable_objects(ret, keep_wrapper=False)
 
     return ret
 
@@ -153,7 +158,7 @@ def launch(
         func = dh.get_function(function_name, project=project_name, entity_id=version)
         # enforce task 
         func._get_or_create_task("subtask")
-    except Exception as e:
+    except Exception:
         raise ValueError(f"Function {function} does not exist in project {project_name}.")
     
     n_jobs = dhlauncher_config.get("n_jobs", -1)
@@ -170,26 +175,24 @@ def launch(
         log.info("\t#{} : {}".format(idx, " ".join(filter_overrides(overrides))))
 
     singleton_state = Singleton.get_state()
+    singleton_state = wrap_non_picklable_objects(
+            singleton_state, keep_wrapper=False
+    )
 
-    futures_map = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for idx, overrides in enumerate(job_overrides):
-            future = executor.submit(
-                execute_job,
-                initial_job_idx + idx,
-                overrides,
-                launcher.hydra_context,
-                launcher.config,
-                dhlauncher_config,
-                func,
-                singleton_state,
-            )
-            futures_map[future] = initial_job_idx + idx
+    calls = (
+        delayed(execute_job)(
+            initial_job_idx + idx,
+            overrides,
+            launcher.hydra_context,
+            launcher.config,
+            dhlauncher_config,
+            func,
+            singleton_state,
+        )
+        for idx, overrides in enumerate(job_overrides)
+    )
+    runs = Parallel(n_jobs=max_workers, backend="loky", prefer="processes")(calls)
 
-    runs: List[JobReturn] = [None] * len(job_overrides)  # type: ignore
-    for future in as_completed(futures_map):
-        idx = futures_map[future] - initial_job_idx
-        runs[idx] = future.result()
 
     for run in runs:
         assert isinstance(run, JobReturn)
